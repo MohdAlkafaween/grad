@@ -22,6 +22,10 @@ echo "=== Odosian ==="
 kubectl -n odosian get pods,svc 2>/dev/null
 
 echo
+echo "=== Odosian AI Engine ==="
+kubectl -n odosian get pods -l app=odosian-engine 2>/dev/null
+
+echo
 echo "=== KubeVision ==="
 kubectl -n kubevision get pods,svc 2>/dev/null
 
@@ -35,6 +39,7 @@ ELASTIC_PW=$(kubectl get secret es-cluster-es-elastic-user -o jsonpath='{.data.e
 echo
 echo "=== Access ==="
 echo "Odosian:        https://${TRAEFIK_IP:-pending}/"
+echo "AI Engine:      http://odosian-engine:8000 (internal, ClusterIP — not reachable from outside the cluster)"
 echo "KubeVision:     http://${KV_IP:-pending}/"
 echo "Kibana:         https://${KB_IP:-pending}:5601   (elastic / ${ELASTIC_PW:-unavailable})"
 echo "Elasticsearch:  https://${ES_IP:-pending}:9200"

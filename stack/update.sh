@@ -17,9 +17,11 @@ STACK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$STACK_DIR/.." && pwd)"
 ODOSIAN_DIR="$REPO_ROOT/odosian"
 KUBEVISION_DIR="$REPO_ROOT/kubevision"
+ENGINE_DIR="$REPO_ROOT/odosian-ai-engine"
 
 ODOSIAN_REPO="https://github.com/MohdAlkafaween/odosian.git"
 KUBEVISION_REPO="https://github.com/MohdAlkafaween/kubevision.git"
+ENGINE_REPO="https://github.com/Hidra141/odosian-ai-engine.git"
 
 log() { echo -e "\n\033[1;33m==> $1\033[0m"; }
 
@@ -38,6 +40,9 @@ pull_or_clone() {
 
 log "Odosian"
 pull_or_clone "$ODOSIAN_DIR" "$ODOSIAN_REPO" "odosian"
+
+log "Odosian AI Engine"
+pull_or_clone "$ENGINE_DIR" "$ENGINE_REPO" "odosian-ai-engine"
 
 log "KubeVision"
 if [ -d "$KUBEVISION_DIR" ] || [ "${1:-}" = "--with-kubevision" ]; then

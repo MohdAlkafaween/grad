@@ -29,10 +29,12 @@ STACK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$STACK_DIR/.." && pwd)"
 ODOSIAN_DIR="$REPO_ROOT/odosian"
 KUBEVISION_DIR="$REPO_ROOT/kubevision"
+ENGINE_DIR="$REPO_ROOT/odosian-ai-engine"
 ECK_CHART_DIR="$STACK_DIR/elastic-siem-chart"
 
 ODOSIAN_REPO="https://github.com/MohdAlkafaween/odosian.git"
 KUBEVISION_REPO="https://github.com/MohdAlkafaween/kubevision.git"
+ENGINE_REPO="https://github.com/Hidra141/odosian-ai-engine.git"
 
 NERDCTL_VERSION="2.3.5"
 BUILDKIT_VERSION="0.31.2"
@@ -53,12 +55,21 @@ else
   echo "Already present."
 fi
 
-log "[1/7] Odosian / KubeVision source"
+log "[1/7] Odosian / AI Engine / KubeVision source"
 if [ -d "$ODOSIAN_DIR" ]; then
   echo "odosian/ already present."
 else
   echo "Cloning odosian..."
   git clone --quiet "$ODOSIAN_REPO" "$ODOSIAN_DIR"
+fi
+
+# Not optional like KubeVision — Odosian's AI features expect this engine to
+# be reachable, so it's always cloned and deployed alongside Odosian.
+if [ -d "$ENGINE_DIR" ]; then
+  echo "odosian-ai-engine/ already present."
+else
+  echo "Cloning odosian-ai-engine..."
+  git clone --quiet "$ENGINE_REPO" "$ENGINE_DIR"
 fi
 
 WITH_KUBEVISION=""

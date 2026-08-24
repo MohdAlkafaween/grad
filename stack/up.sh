@@ -19,6 +19,8 @@ K8S_DIR="$ODOSIAN_DIR/k8s"
 ECK_CHART_DIR="$STACK_DIR/elastic-siem-chart"
 CERTS_DIR="$ODOSIAN_DIR/certs"
 KUBEVISION_DIR="$REPO_ROOT/kubevision"
+ENGINE_DIR="$REPO_ROOT/odosian-ai-engine"
+ENGINE_K8S_DIR="$ENGINE_DIR/k8s"
 
 log() { echo -e "\n\033[1;36m==> $1\033[0m"; }
 
@@ -69,6 +71,16 @@ sudo systemctl start k3s
 # installed by something other than build.sh's INSTALL_K3S_EXEC flag — every
 # bare `kubectl` call below silently fails with permission denied.
 sudo chmod 644 /etc/rancher/k3s/k3s.yaml 2>/dev/null || true
+# Same idea for the `kubectl` command itself — k3s normally symlinks it
+# automatically, but on a machine where that didn't happen (or the symlink
+# got removed some other way) every kubectl call below fails with
+# "command not found". The wait loop right after this used to swallow that
+# silently (2>/dev/null) and just retry forever, which looks identical to
+# "the node is taking forever to become Ready" even when it already is.
+if ! command -v kubectl &>/dev/null; then
+  echo "kubectl isn't on PATH — recreating the symlink k3s normally sets up automatically..."
+  sudo ln -sf /usr/local/bin/k3s /usr/local/bin/kubectl
+fi
 echo "Waiting for node to be Ready..."
 until kubectl get nodes 2>/dev/null | grep -q " Ready"; do sleep 2; done
 echo "k3s is up."
@@ -89,7 +101,15 @@ if ! helm status metallb -n metallb-system &>/dev/null; then
     --set speaker.resources.requests.cpu=50m \
     --set speaker.resources.limits.memory=128Mi
   echo "Waiting for MetalLB pods..."
-  kubectl -n metallb-system wait --for=condition=Ready pods --all --timeout=120s
+  # Same race as the ECK operator wait fixed earlier: `wait --all` targets
+  # whatever pods exist *right now* — if helm install just returned and the
+  # controller/speaker pods haven't been scheduled yet, this fails instantly
+  # with "no matching resources found" instead of waiting for them to
+  # appear. rollout status targets the Deployment/DaemonSet by name, which
+  # helm creates synchronously, so it correctly waits for their pods to be
+  # created and become ready instead of racing them.
+  kubectl -n metallb-system rollout status deployment/metallb-controller --timeout=120s
+  kubectl -n metallb-system rollout status daemonset/metallb-speaker --timeout=120s
 else
   echo "MetalLB already installed."
 fi
@@ -240,6 +260,27 @@ if [ "$REBUILD" = "1" ]; then
   kubectl -n odosian rollout restart deployment/odosian 2>/dev/null || true
 fi
 
+log "[6.5/10] Odosian AI Engine container image"
+if [ -f "$ENGINE_DIR/Dockerfile" ]; then
+  if ! sudo k3s ctr -n k8s.io images ls -q 2>/dev/null | grep -q "^docker.io/library/odosian-ai-engine:latest$"; then
+    echo "Building engine image (no cached image found)..."
+    sudo nerdctl --address /run/k3s/containerd/containerd.sock --namespace k8s.io \
+      build --buildkit-host unix:///run/buildkit/buildkitd.sock -t odosian-ai-engine:latest "$ENGINE_DIR"
+  else
+    echo "Engine image already built. Pass --rebuild to force a rebuild."
+  fi
+  if [ "$REBUILD" = "1" ]; then
+    echo "Rebuilding engine image..."
+    sudo nerdctl --address /run/k3s/containerd/containerd.sock --namespace k8s.io \
+      build --buildkit-host unix:///run/buildkit/buildkitd.sock -t odosian-ai-engine:latest "$ENGINE_DIR"
+    kubectl -n odosian rollout restart deployment/odosian-engine 2>/dev/null || true
+  fi
+elif [ -d "$ENGINE_DIR" ]; then
+  echo "odosian-ai-engine/ has no Dockerfile yet — skipping engine build until it does."
+else
+  echo "odosian-ai-engine/ not found — skipping engine build."
+fi
+
 log "[7/10] Odosian namespace, secrets, storage"
 if [ ! -f "$K8S_DIR/secret.local.yaml" ]; then
   echo "First run — generating a JWT secret (kept local, never committed)..."
@@ -277,6 +318,18 @@ if ! kubectl -n odosian get secret odosian-tls &>/dev/null; then
     -subj "/CN=odosian.local" -addext "subjectAltName=${SAN}" 2>/dev/null
   kubectl -n odosian create secret tls odosian-tls \
     --cert="$CERTS_DIR/odosian-tls.crt" --key="$CERTS_DIR/odosian-tls.key"
+fi
+
+if [ -f "$ENGINE_K8S_DIR/deployment.yaml" ] && [ -f "$ENGINE_K8S_DIR/service.yaml" ]; then
+  log "[7.5/10] Odosian AI Engine deployment"
+  # The engine's manifests ship with no namespace set — -n odosian puts them
+  # in the same namespace as Odosian itself rather than needing the manifests
+  # to hardcode it.
+  kubectl apply -n odosian -f "$ENGINE_K8S_DIR/deployment.yaml"
+  kubectl apply -n odosian -f "$ENGINE_K8S_DIR/service.yaml"
+  kubectl -n odosian rollout status deployment/odosian-engine --timeout=120s
+elif [ -d "$ENGINE_DIR" ]; then
+  echo "odosian-ai-engine/k8s/ manifests not present yet — skipping engine deployment until they are."
 fi
 
 kubectl apply -f "$K8S_DIR/deployment.yaml"

@@ -45,6 +45,7 @@ kubectl delete namespace metallb-system --ignore-not-found
 
 echo "Stopping Odosian and KubeVision..."
 kubectl -n odosian scale deployment odosian --replicas=0 2>/dev/null || true
+kubectl -n odosian scale deployment odosian-engine --replicas=0 2>/dev/null || true
 kubectl -n kubevision scale deployment kubevision --replicas=0 2>/dev/null || true
 
 if [ "$FULL" = true ]; then
